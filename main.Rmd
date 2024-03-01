@@ -1,0 +1,99 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+library(readxl)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(leaflet, quietly = TRUE)
+library(dplyr)
+library(plotly)
+library(hhi)
+library(broom)
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+df <- read_excel("data.xlsx")
+df$סך_שעות <-  as.integer(df$סך_שעות)
+df$סך_שעות[is.na(df$סך_שעות)] <- 0
+df$רמת_גמלה <- as.factor(df$רמת_גמלה)
+df$שם_חברה <- as.factor(df$שם_חברה)
+
+coord <- read_excel("coordinates.xlsx") %>%
+  mutate(long = as.double(long), lat = as.double(lat)) %>% select(address, lat, long)
+
+df <- merge(x = df, y = coord, by.x = "סניף", by.y = "address", all.x = TRUE) 
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+df %>% select("רמת_גמלה", "סך_שעות", "שנה") %>% group_by(שנה , רמת_גמלה) %>% summarise(h = sum(סך_שעות)) %>% mutate(perc = `h` / sum(`h`)) %>% 
+  mutate(labels = scales::percent(perc)) %>%
+  ggplot(aes(x="", y=perc, fill=רמת_גמלה)) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    geom_bar(stat="identity", width=1, position="fill") +
+    geom_text(aes(label = labels), position = position_stack(vjust = 0.5)) +
+    facet_wrap(~שנה)
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+
+df %>% select("שם_חברה", "סך_שעות", "שנה") %>% group_by(שנה , שם_חברה) %>% summarise(h = sum(סך_שעות)) %>% mutate(perc = `h` / sum(`h`)) %>% arrange(desc(h)) %>%
+  mutate(labels = scales::percent(perc)) %>%
+  plot_ly(height  = 1000, x = ~perc*100, y = ~שם_חברה, type = 'scatter', mode = "markers", color = ~as.factor(שנה)) %>% layout( yaxis = list(categoryorder = "total descending", dtick=1), xaxis = list(ticksuffix = "%",  range = c(0, 15)))
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+
+hhi <- df %>% filter(שנה == 2023) %>% select("שם_חברה", "סך_שעות") %>% group_by(שם_חברה) %>% summarise(h = sum(סך_שעות)) %>% mutate(perc = `h` / sum(`h`)) %>% ungroup() %>% summarise(hhi=sum(perc^2))
+
+print(paste0("HHI for all Israel : ", hhi$hhi))
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+df %>% filter(שנה == 2023) %>% select("שם_חברה", "סך_שעות", "סניף") %>% group_by(סניף , שם_חברה) %>% summarise(h = sum(סך_שעות)) %>% mutate(perc = `h` / sum(`h`)) %>%
+  mutate(labels = scales::percent(perc)) %>% ungroup() %>% group_by(סניף) %>% summarise(hhi=sum(perc^2)) %>%
+  ggplot(aes(y=סניף, x=hhi)) + 
+    geom_bar(stat="identity")
+```
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+cr4_df <- df %>% filter(שנה == 2023) %>% select("שם_חברה", "סך_שעות", "סניף") %>% group_by(סניף , שם_חברה) %>% summarise(h = sum(סך_שעות)) %>% mutate(perc = `h` / sum(`h`)) %>%
+  mutate(labels = scales::percent(perc)) %>% ungroup() %>% group_by(סניף) %>% arrange(desc(perc)) %>% slice(1:4) 
+
+print("TOP 4 companies per city")
+cr4_df
+
+cr4_df %>% summarise(cr4=sum(perc)) %>% 
+  ggplot(aes(y=סניף, x=cr4)) + 
+    geom_bar(stat="identity")
+
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+fdf <- df %>% filter(שנה == 2023) %>% select(סניף , שם_חברה, lat, long) %>% group_by(סניף) %>% summarise(comp = unique(שם_חברה), lat = unique(lat), long = unique(long)) %>% mutate(n = n()) %>% summarise(lat = unique(lat), long = unique(long), n = unique(n))
+base <- leaflet() %>%
+  addTiles() %>%
+  addScaleBar() %>%
+  setView(lat = mean(df$lat, na.rm=TRUE), lng = mean(df$long, na.rm=TRUE), zoom = 10) %>%
+  addMiniMap()
+
+
+base %>% addCircleMarkers(
+  lng = df$long, lat = df$lat,
+  stroke = FALSE, fillOpacity = 0.5
+)
+```
+
